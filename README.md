@@ -11,8 +11,8 @@ Traditional email AI tools upload your sensitive emails, attachments, and client
 
 - **All LLM Inference runs 100% locally** via Ollama targeting `gemma2:2b`.
 - **Durable Overnight Orchestration** is managed by Temporal to triage at a calm, steady pace, preventing local GPU spikes.
-- **Tone Memory** matches your authentic style using **PostgreSQL + pgvector** (or Tiger Data) with zero cloud vector lookups.
-- **Complete Telemetry** is tracked through **Sentry AI Agent Tracing** (`_experiments={"enable_ai_agent_tracing": True}`).
+- **Style Memory** stores vectors in SQLite locally or PostgreSQL + pgvector in Docker. A compatible local embedding model is required for semantic matching; the deterministic offline fallback keeps the demo running but is not semantic.
+- **Content-free Telemetry** is tracked through **Sentry AI Agent Tracing** (`_experiments={"enable_ai_agent_tracing": True}`); spans record model, step, character/token counts, latency, and error type, never email or draft text.
 
 ---
 
@@ -22,8 +22,8 @@ Traditional email AI tools upload your sensitive emails, attachments, and client
 |---|---|
 | **Google Gemma ($200)** | Local inference (`gemma2:2b`) for classification, extracted commitments, deadline detection, and style-conditioned drafting. |
 | **Temporal ($100)** | Long-running durable workflow (`OvernightEmailPrepWorkflow`) managing sequential batch triage, retry policies, and overnight step orchestration. |
-| **Sentry Agent Tracing ($100)** | Full telemetry recording LLM spans (`gen_ai.gemma`), prompt previews, input/output tokens, and latency via `sentry-sdk`. |
-| **Tiger Data / PostgreSQL + pgvector ($100)** | Semantic memory storing historical sent samples to maintain the user's authentic writing style without manual prompting. |
+| **Sentry Agent Tracing ($100)** | Content-free LLM spans (`gen_ai.gemma`) recording model, step, character/token counts, latency, and sanitized error type via `sentry-sdk`. |
+| **Tiger Data / PostgreSQL + pgvector ($100)** | Persistent storage for style vectors; semantic matching depends on a compatible local embedding model. |
 
 ---
 
@@ -99,7 +99,15 @@ python -m venv .venv
 pip install -r requirements.txt
 python main.py
 ```
+
 *The backend starts at `http://localhost:8000`.*
+
+On Windows, if more than one virtual environment exists, run commands through the project environment explicitly from `backend`:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe main.py
+```
 
 #### 2. Start the Frontend
 
@@ -108,6 +116,7 @@ cd frontend
 npm install
 npm run dev
 ```
+
 *The dashboard will be live at `http://localhost:5173`.*
 
 ---

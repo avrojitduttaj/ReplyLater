@@ -49,31 +49,46 @@ class VectorService:
     @staticmethod
     async def get_embedding(text: str) -> List[float]:
         """Fetch 384-dim embedding from Ollama or compute deterministic fallback vector."""
-        # 1. Try Ollama if reachable with fast connect timeout
+        # Try Ollama first; not every local generation model supports embeddings.
         try:
-            timeout = httpx.Timeout(5.0, connect=0.2)
+            timeout = httpx.Timeout(5.0, connect=0.5)
             async with httpx.AsyncClient(timeout=timeout) as client:
                 res = await client.post(
                     f"{settings.OLLAMA_HOST}/api/embeddings",
                     json={"model": settings.GEMMA_MODEL, "prompt": text[:512]},
                 )
-                if res.status_code == 200:
+                if res.status_code != 200:
+                    logger.warning(
+                        "Ollama embedding request returned HTTP %s; using deterministic fallback.",
+                        res.status_code,
+                    )
+                else:
                     data = res.json()
-                    embedding = data.get("embedding", [])
-                    if embedding:
-                        # Normalize or truncate/pad to 384 if needed
-                        if len(embedding) > 384:
-                            embedding = embedding[:384]
-                        elif len(embedding) < 384:
+                    embedding = data.get("embedding") if isinstance(data, dict) else None
+                    if (
+                        isinstance(embedding, list)
+                        and embedding
+                        and all(
+                            isinstance(value, (int, float)) and math.isfinite(value)
+                            for value in embedding
+                        )
+                    ):
+                        embedding = embedding[:384]
+                        if len(embedding) < 384:
                             embedding = embedding + [0.0] * (384 - len(embedding))
                         norm = math.sqrt(sum(x * x for x in embedding))
                         if norm > 0:
                             return [x / norm for x in embedding]
-                        return embedding
-        except Exception:
-            pass
+                    logger.warning(
+                        "Ollama embedding response did not contain a usable vector; "
+                        "using deterministic fallback."
+                    )
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            logger.warning(
+                "Ollama embedding request failed (%s); using deterministic fallback.",
+                type(exc).__name__,
+            )
 
-        # 2. Deterministic local embedding (Zero cloud egress & 100% offline resilient)
         return _deterministic_mock_embedding(text, dim=384)
 
     @classmethod

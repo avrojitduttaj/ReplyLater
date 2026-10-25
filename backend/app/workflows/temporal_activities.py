@@ -61,11 +61,21 @@ async def parse_and_store_eml_activity(input_data: str) -> str:
 
 
 @activity.defn(name="retrieve_style_context_activity")
-async def retrieve_style_context_activity(thread_body: str) -> List[str]:
+async def retrieve_style_context_activity(thread_id: str) -> List[str]:
     """Retrieve top-k user style samples from pgvector/vector memory matching thread body."""
-    logger.info(f"Executing retrieve_style_context_activity for body length {len(thread_body)}")
     async with AsyncSessionLocal() as session:
-        samples = await vector_service.retrieve_style_context(session, thread_body, top_k=2)
+        thread = await session.get(Thread, thread_id)
+        if thread is None:
+            raise ValueError(f"Thread {thread_id} not found")
+        logger.info(
+            "Executing retrieve_style_context_activity for body length %s",
+            len(thread.raw_body),
+        )
+        samples = await vector_service.retrieve_style_context(
+            session,
+            thread.raw_body,
+            top_k=2,
+        )
         logger.info(f"Found {len(samples)} style context samples")
         return samples
 

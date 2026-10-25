@@ -44,9 +44,10 @@ async def run_worker():
         logger.info("Temporal worker running. Press Ctrl+C to stop.")
         await worker.run()
 
-    except Exception as e:
-        logger.error(f"Failed to start Temporal worker: {e}")
+    except Exception:
+        logger.exception("Failed to start Temporal worker.")
         logger.info("Note: Ensure Temporal server is running (e.g., via docker compose or 'temporal server start-dev').")
+        raise
 
 
 if __name__ == "__main__":

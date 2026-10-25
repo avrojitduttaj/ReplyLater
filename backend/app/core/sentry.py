@@ -76,7 +76,7 @@ def trace_llm_span(
             if span:
                 span.set_data("gen_ai.system", "ollama")
                 span.set_data("gen_ai.model", model_name)
-                span.set_data("gen_ai.prompt_preview", prompt[:120] if prompt else "")
+                span.set_data("gen_ai.prompt_chars", len(prompt))
                 span.set_data("gen_ai.step", step_name)
 
             yield ctx
@@ -90,13 +90,16 @@ def trace_llm_span(
                 span.set_data("gen_ai.tokens.total", ctx.tokens_in + ctx.tokens_out)
                 span.set_data("gen_ai.duration_ms", round(ctx.duration_ms, 2))
                 if ctx.output:
-                    span.set_data("gen_ai.output_preview", ctx.output[:120])
+                    span.set_data("gen_ai.output_chars", len(ctx.output))
     except Exception as exc:
         ctx.duration_ms = (time.perf_counter() - ctx._start_time) * 1000.0
         if ctx.span:
             ctx.span.set_status("internal_error")
-            ctx.span.set_data("error.message", str(exc))
-        sentry_sdk.capture_exception(exc)
+            ctx.span.set_data("error.type", type(exc).__name__)
+        sentry_sdk.capture_message(
+            f"LLM step failed during {step_name} ({type(exc).__name__})",
+            level="error",
+        )
         logger.error(f"Error in LLM span [{step_name}]: {exc}")
         raise
     finally:

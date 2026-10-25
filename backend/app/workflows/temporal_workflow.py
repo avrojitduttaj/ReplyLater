@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta
+import uuid
 from typing import List, Dict, Any
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -12,8 +12,6 @@ with workflow.unsafe.imports_passed_through():
         DEFAULT_RETRY_POLICY,
         DEFAULT_TIMEOUT,
     )
-    from app.db.database import AsyncSessionLocal
-    from app.db.models import Thread
     from app.core.config import settings
 
 logger = logging.getLogger("replylater.workflow")
@@ -46,7 +44,7 @@ class OvernightEmailPrepWorkflow:
             # 2. Retrieve style context from vector memory
             style_samples = await workflow.execute_activity(
                 retrieve_style_context_activity,
-                item[:500],
+                thread_id,
                 start_to_close_timeout=DEFAULT_TIMEOUT,
                 retry_policy=DEFAULT_RETRY_POLICY,
             )
@@ -72,17 +70,8 @@ async def run_overnight_pipeline_direct(email_items: List[str]) -> List[Dict[str
     """
     results = []
     for item in email_items:
-        # Step 1: Parse & Store
         thread_id = await parse_and_store_eml_activity(item)
-
-        # Step 2: Retrieve Style Samples
-        async with AsyncSessionLocal() as session:
-            thread = await session.get(Thread, thread_id)
-            body = thread.raw_body if thread else ""
-
-        style_samples = await retrieve_style_context_activity(body)
-
-        # Step 3: Classify & Draft
+        style_samples = await retrieve_style_context_activity(thread_id)
         outcome = await classify_and_draft_activity({"thread_id": thread_id, "style_samples": style_samples})
         results.append(outcome)
 
@@ -105,21 +94,17 @@ def is_temporal_available(host: str) -> bool:
 async def trigger_email_batch_workflow(email_items: List[str]) -> List[Dict[str, Any]]:
     """Dispatch email batch through Temporal if connected, or direct fallback runner."""
     if is_temporal_available(settings.TEMPORAL_HOST):
-        try:
-            from temporalio.client import Client
-            client = await Client.connect(settings.TEMPORAL_HOST, namespace="default")
-            handle = await client.start_workflow(
-                OvernightEmailPrepWorkflow.run,
-                email_items,
-                id=f"overnight-prep-{int(timedelta().total_seconds())}",
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
-            logger.info(f"Triggered Temporal workflow with run id {handle.run_id}")
-            result = await handle.result()
-            return result
-        except Exception as e:
-            logger.warning(f"Temporal execution error ({e}). Executing pipeline locally.")
-            return await run_overnight_pipeline_direct(email_items)
+        from temporalio.client import Client
+
+        client = await Client.connect(settings.TEMPORAL_HOST, namespace="default")
+        handle = await client.start_workflow(
+            OvernightEmailPrepWorkflow.run,
+            email_items,
+            id=f"overnight-prep-{uuid.uuid4().hex}",
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+        logger.info(f"Triggered Temporal workflow with run id {handle.run_id}")
+        return await handle.result()
 
     logger.info(f"Temporal server not listening at {settings.TEMPORAL_HOST}. Executing pipeline directly.")
     return await run_overnight_pipeline_direct(email_items)
