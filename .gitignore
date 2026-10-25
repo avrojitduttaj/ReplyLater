@@ -25,6 +25,9 @@ venv/
 ENV/
 *.db
 *.sqlite3
+.env
+.env.*
+!.env.example
 
 # Node / Frontend
 node_modules/
