@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: replylater-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: replylater
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d replylater"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    image: temporalio/admin-tools:latest
+    container_name: replylater-temporal
+    entrypoint: ["temporal", "server", "start-dev", "--ip", "0.0.0.0", "--ui-port", "8233", "--port", "7233"]
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    environment:
+      - TEMPORAL_CLI_ADDRESS=127.0.0.1:7233
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: replylater-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/replylater
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_TASK_QUEUE=email-triage-queue
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - GEMMA_MODEL=gemma2:2b
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: replylater-worker
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/replylater
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_TASK_QUEUE=email-triage-queue
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - GEMMA_MODEL=gemma2:2b
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      backend:
+        condition: service_started
+
+volumes:
+  postgres_data:
